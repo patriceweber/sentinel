@@ -446,8 +446,7 @@ for uid in products:
     
     
 if sw_downloads:
-    pass
-    #api.download_all(products, tilesdir)
+    api.download_all(products, tilesdir)
  
 # all the tiles matching the search parameters are saved in the 
 # products data structure. 'products' is a dictionary of dictionaries.
