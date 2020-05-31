@@ -3,12 +3,20 @@ import os, sys, re
 from re import RegexFlag
 import zipfile
 
+import argparse
+
 from collections import OrderedDict
 from sentinelsat import SentinelAPI
 
 import subprocess
 import logging
 import shutil
+
+from sentinel.utils import Globals
+from sentinel.utils import LogEngine
+
+from sentinel.utils import readConfig
+#from sentinel.utils import sanityCheck
 
 
 class workflowException(Exception):
@@ -364,108 +372,213 @@ def processTiles(processdir, dirtiles):
         
 # ========================================       
         
-
-
-#==============================================================================
-#=====================  Script main branch starts here  =======================
-#==============================================================================
-
-#=====================   Script input data ====================================
-
-
-#tiles = ['52JFS']
-#tiles = ['54LYJ']                          # ADD TILES HERE AS A PYTHON LIST
-#tiles = ['52LEJ'] 
-
-#tiles = ['52LBJ', '52LBH', '52LCH']
-tiles = ['T52LBH', '52LCH'] 
-
-tilesdir = r'D:\_RSDATA_\Sentinel-2'    # CHANGE DOWNLOAD LOCATION HERE
-processdir = r'D:\_RSDATA_\Sentinel-2\Processing'  # CHANGE PROCESSING LOCATION HERE
-
-usefulBands = ['5', '8A', '11', '12' ]  # Band required by SAGA computations
-
-saga_cmd = r'C:\Program Files\SAGA-GIS\saga-7.0.0_x64\saga_cmd.exe'  # SAGA cmd full path
- 
-saga_cores = 2  # Number of CPU cores allocated to SAGA cmd
-saga_verbose = False  # SAGA cmd verbose mode
-
-sw_downloads = True  # Enable/Disable tile downloads
-
-allowCleanup = True
-
-# initialize console logger
-_logger = initLogger(name='Sentinel Processing', level=logging.INFO)
-
-#==============================================================================
-
-
-api = SentinelAPI('aidanfnqspatial', 'FNQsp4tial')  # CHANGE LOGIN DETAILS HERE
-
-platform = 'Sentinel-2'
-
-#
-#query_kwargs = {
-#        'platformname': platform,
-#        'producttype': 'S2MSI1C',
-#        'date': ('NOW-4DAYS', 'NOW')}  # CHANGE DATE RANGE HERE
-#
-
-#'date': ('NOW-794DAYS', 'NOW-629DAYS'),
-
-query_kwargs = {
-        'platformname': platform,
-        'producttype': 'S2MSI1C',
-        'date': ('NOW-4DAYS', 'NOW')}
-#        'cloudcoverpercentage': (0)}  
-
-products = OrderedDict()
-
-if not os.path.exists(tilesdir):
-    print('Download directory doesn\'t exist. Aborting data download.')
-    exit(1)
-
-for tile in tiles:  # Iterate through the tiles list
-    kw = query_kwargs.copy()
-    kw['tileid'] = tile  # 'products' after 2017-03-31
-    pp = api.query(**kw)
-    products.update(pp)
-
-# all the requests have been queued in the OrderedDict 'products', 
-# start the bulk download of the tiles.
-
-print('Proceeding to download:')
-
-for uid in products:
+def downloadTiles(data):
     
-    archive = products[uid]
-    tileid = archive['tileid']
-    acqdate = archive['datatakesensingstart'].strftime("%Y-%m-%d")
+    user = data['username']
+    passwd = data['password']
+    portal = data['portal_url']
+    platform = data['platform']
     
-    _logger.info('- Tile %s acquired on %s' % (tileid, acqdate))
+    api = SentinelAPI(user, passwd, portal)  # CHANGE LOGIN DETAILS HERE
+    
+    tiles = data['tiles']
+    outputdir = data['working_d']    # CHANGE DOWNLOAD LOCATION HERE
+    
+    #
+    #query_kwargs = {
+    #        'platformname': platform,
+    #        'producttype': 'S2MSI1C',
+    #        'date': ('NOW-4DAYS', 'NOW')}  # CHANGE DATE RANGE HERE
+    #
+    
+    #'date': ('NOW-794DAYS', 'NOW-629DAYS'),
+    
+    query_kwargs = {
+            'platformname': platform,
+            'producttype': 'S2MSI1C',
+            'date': ('NOW-4DAYS', 'NOW')}
+    #        'cloudcoverpercentage': (0)}  
+    
+    products = OrderedDict()
+    
+    if not os.path.exists(outputdir):
+        print('Download directory doesn\'t exist. Aborting data download.')
+        exit(1)
+    
+    for tile in tiles:  # Iterate through the tiles list
+        kw = query_kwargs.copy()
+        kw['tileid'] = tile  # 'products' after 2017-03-31
+        pp = api.query(**kw)
+        products.update(pp)
+    
+    # all the requests have been queued in the OrderedDict 'products', 
+    # start the bulk download of the tiles.
+    
+    print('Proceeding to download:')
+    
+    for uid in products:
+        
+        archive = products[uid]
+        tileid = archive['tileid']
+        acqdate = archive['datatakesensingstart'].strftime("%Y-%m-%d")
+        
+        _logger.info('- Tile %s acquired on %s' % (tileid, acqdate))
+        
+        
+    if sw_downloads:
+        api.download_all(products, tilesdir)
+        
+    return
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
+    parser.add_argument('-c', '--config', nargs=1, metavar='filename', default='params.conf', help='Configuration file')
+    parser.add_argument('-r', '--revision', help='Displays script version/revision', default=False, action='store_true')
+    parser.add_argument('-v', '--validate', help='Validates configuration file parameters', default=False, action='store_true')
+    
+    args = parser.parse_args()
+    
+    print(' ')
+    # ====================================================== args.revision ====
+    # Print Script version/revision
+    if args.revision:
+        print('\n\tScript \'{0}\', version: {1}\n'.format(os.path.basename(__file__), Globals.VERSION))
+        exit(0)
+        
+    # Init logging engine
+    logname = Globals.LOGNAME
+    engine = LogEngine()
+    engine.initLogger(name=logname)
+    
+    # Get logger instance
+    logger = engine.logger
+    logger.info('\n')    
+
+    # =======================================================  args.config ====
+    
+    # Verify the configuration file exists (default or from command line)
+    if args.config.__class__.__name__ == 'list':
+        fconfig = args.config[0]
+    else:
+        fconfig = args.config
+    
+    basename = os.path.basename(fconfig)
+    
+    if basename == fconfig:
+        # try relative path
+        if not os.path.isfile(os.path.join(os.getcwd(), fconfig)):
+            logger.critical('Config file not found: %s', os.path.join(os.getcwd(), fconfig))
+            exit(1)
+    else:
+        if not os.path.isfile(fconfig):
+            logger.critical('Config file not found: %s', fconfig)
+            exit(1)
+
+    # ======================================================  Config file  =====
+    # Read configuration file into a dictionary
+    config = readConfig(fconfig)
+    if config is None:
+        exit(1)
+
+    
+    downloadTiles(config)
+    
+    #==============================================================================
+    #=====================  Script main branch starts here  =======================
+    #==============================================================================
+    
+    #=====================   Script input data ==================================== 
+    
+    tiles = ['52LBJ','52LBH','52LCH','52LCJ']   # ADD TILES AS A PYTHON LIST
+    tilesdir = r'D:\_RSDATA_\Sentinel-2'        # CHANGE DOWNLOAD LOCATION HERE
+    processdir = r'D:\_RSDATA_\Sentinel-2\Processing'  # CHANGE PROCESSING LOCATION HERE
+    
+    usefulBands = ['5', '8A', '11', '12' ]  # Band required by SAGA computations
+    
+    saga_cmd = r'C:\Program Files\SAGA-GIS\saga-7.0.0_x64\saga_cmd.exe'  # SAGA cmd full path
+     
+    saga_cores = 2  # Number of CPU cores allocated to SAGA cmd
+    saga_verbose = False  # SAGA cmd verbose mode
+    
+    sw_downloads = True  # Enable/Disable tile downloads
+    
+    allowCleanup = True
+    
+    # initialize console logger
+    _logger = initLogger(name='Sentinel Processing', level=logging.INFO)
+    
+    #==============================================================================
     
     
-if sw_downloads:
-    api.download_all(products, tilesdir)
- 
-# all the tiles matching the search parameters are saved in the 
-# products data structure. 'products' is a dictionary of dictionaries.
-# See the function 'extractSentinel2Bands' for more details
- 
- 
-# Extract all band images from archive
- 
-if platform == 'Sentinel-2':
-    procQueue = extractSentinel2Bands(tilesdir, products)
-else:
-    _logger.info('Platform not supported. Unzip archive manually.')
-
-#procQueue = []
-#procQueue.append(r'D:\_RSDATA_\Sentinel-2\54LYJ\20181208')
-
-if len(procQueue) > 0:
-    processTiles(processdir, procQueue);
-
-
-
-exit(0)
+    api = SentinelAPI('aidanfnqspatial', 'FNQsp4tial')  # CHANGE LOGIN DETAILS HERE
+    
+    platform = 'Sentinel-2'
+    
+    #
+    #query_kwargs = {
+    #        'platformname': platform,
+    #        'producttype': 'S2MSI1C',
+    #        'date': ('NOW-4DAYS', 'NOW')}  # CHANGE DATE RANGE HERE
+    #
+    
+    #'date': ('NOW-794DAYS', 'NOW-629DAYS'),
+    
+    query_kwargs = {
+            'platformname': platform,
+            'producttype': 'S2MSI1C',
+            'date': ('NOW-4DAYS', 'NOW')}
+    #        'cloudcoverpercentage': (0)}  
+    
+    products = OrderedDict()
+    
+    if not os.path.exists(tilesdir):
+        print('Download directory doesn\'t exist. Aborting data download.')
+        exit(1)
+    
+    for tile in tiles:  # Iterate through the tiles list
+        kw = query_kwargs.copy()
+        kw['tileid'] = tile  # 'products' after 2017-03-31
+        pp = api.query(**kw)
+        products.update(pp)
+    
+    # all the requests have been queued in the OrderedDict 'products', 
+    # start the bulk download of the tiles.
+    
+    print('Proceeding to download:')
+    
+    for uid in products:
+        
+        archive = products[uid]
+        tileid = archive['tileid']
+        acqdate = archive['datatakesensingstart'].strftime("%Y-%m-%d")
+        
+        _logger.info('- Tile %s acquired on %s' % (tileid, acqdate))
+        
+        
+    if sw_downloads:
+        api.download_all(products, tilesdir)
+     
+    # all the tiles matching the search parameters are saved in the 
+    # products data structure. 'products' is a dictionary of dictionaries.
+    # See the function 'extractSentinel2Bands' for more details
+     
+     
+    # Extract all band images from archive
+     
+    if platform == 'Sentinel-2':
+        procQueue = extractSentinel2Bands(tilesdir, products)
+    else:
+        _logger.info('Platform not supported. Unzip archive manually.')
+    
+    #procQueue = []
+    #procQueue.append(r'D:\_RSDATA_\Sentinel-2\54LYJ\20181208')
+    
+    if len(procQueue) > 0:
+        processTiles(processdir, procQueue);
+    
+    
+    
+    exit(0)
