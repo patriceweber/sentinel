@@ -4,4 +4,6 @@
     script run smooothly """
 
 import sentinel.utils
+import sentinel.downloader
+import sentinel.workflow
 

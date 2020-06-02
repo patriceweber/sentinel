@@ -5,8 +5,6 @@ import ctypes, platform, itertools
 import configparser
 from configparser import NoOptionError
 
-from collections import defaultdict
-
 import time, datetime, logging
 
 import re
@@ -15,18 +13,12 @@ from re import RegexFlag
 import tarfile
 from tabulate import tabulate
 
-import socket
-from http.client import HTTPConnection, HTTPException, InvalidURL
-
-from robobrowser import RoboBrowser as rb
-
-
 
 class Globals():
     """ Class holding global constants used and shared throughout the scripts
     """
 
-    LOGNAME = r'Sentinel_Downloader'
+    LOGNAME = r'SENTINEL_DOWNLOADS'
     VERSION = r'1.0.1'
 
     # The '~' means home directory. In the case of Windows operating systems
@@ -94,6 +86,17 @@ class LogEngine:
 
             return
 
+        def setLogsRootdir(self, location):
+            """ Set the location of the logs folder
+            """            
+            self.rootdir = location
+            return
+            
+        def getLogsRootdir(self):
+            """ Return the location of the logs folder
+            """             
+            return self.rootdir
+
         def setLogLevel(self, level):
             """ Set the logging level (DEBUG, INFO, WARNING etc..)
             """
@@ -122,11 +125,12 @@ class LogEngine:
                 logpath = os.path.join(os.getcwd(), 'logs')
             else:
                 # Put all the logfiles into a 'rootdir' directory
-                if self.rootdir[0] == '~':
+                if self.rootdir == '~':
                     logpath = os.path.expanduser(self.rootdir)
                 else:
-                    logpath = os.path.join('', self.rootdir)
-
+                    logpath = os.path.join(self.rootdir, 'logs')
+         
+            
             self.rootdir = logpath
             if os.path.exists(logpath) is False:
                 os.makedirs(logpath)
@@ -297,11 +301,16 @@ def readConfig(f_config):
             config_lk['cc_land'] = 100.0
         else:
             config_lk['cc_land'] = float(config_lk['cc_land'])
-            
-                
+
+        _key = '[COPERNICUS]: bands'
+        strbands = _config.get('COPERNICUS', 'bands')
+        strbands = strbands + ',PVI'
+        config_lk['bands'] = strbands.split(",")
+
+
         # Load [ENV] section parameters
-        _key = '[ENV]: working_d'
-        config_lk['working_d'] = _config.get('ENV', 'working_d')
+        _key = '[ENV]: base_d'
+        config_lk['base_d'] = _config.get('ENV', 'base_d')
 
         _key = '[ENV]: verbose'
         config_lk['verbose'] = _config.getboolean('ENV', 'verbose')
@@ -377,41 +386,61 @@ def displayRunConfiguration(config_lk, _status=None):
         trow.append('              ')
         data_matrix.append(trow)
 
+        # username
         trow = []
         trow.append('COPERNICUS Username')
         trow.append(config_lk['username'])
         if 'username' in _status: trow.append(_status['username'])
         data_matrix.append(trow)
 
+        # password
         trow = []
         trow.append('COPERNICUS Password')
         trow.append(config_lk['password'])
         if 'password' in _status: trow.append(_status['password'])
         data_matrix.append(trow)
 
+        # portal_url
         trow = []
         trow.append('COPERNICUS Portal')
         trow.append(config_lk['portal_url'])
         if 'portal_url' in _status: trow.append(_status['portal_url'])
         data_matrix.append(trow)
 
-        #[SCENES]
-        if 'scenes' in _status:
-
-            trow = []
-            trow.append('[SCENES]')
-            trow.append('              ')
-            data_matrix.append(trow)
-
-            for scene in _status['scenes']:
-
-                trow = []
-                mesg = scene.split(':')
-                trow.append(mesg[0])
-                trow.append(mesg[1])
-                trow.append('Out of bound error')
-                data_matrix.append(trow)
-
+        # tiles
+        trow = []
+        trow.append('COPERNICUS tiles')
+        trow.append(config_lk['tiles'])
+        if 'tiles' in _status: trow.append(_status['tiles'])
+        data_matrix.append(trow)
+        
+        # startdate
+        trow = []
+        trow.append('COPERNICUS startdate')
+        trow.append(config_lk['startdate'])
+        if 'startdate' in _status: trow.append(_status['startdate'])
+        data_matrix.append(trow)
+        
+        # enddate
+        trow = []
+        trow.append('COPERNICUS enddate')
+        trow.append(config_lk['enddate'])
+        if 'enddate' in _status: trow.append(_status['enddate'])
+        data_matrix.append(trow)
+        
+        # cc_land
+        trow = []
+        trow.append('COPERNICUS cc_land')
+        trow.append(config_lk['cc_land'])
+        if 'cc_land' in _status: trow.append(_status['cc_land'])
+        data_matrix.append(trow)
+        
+        # bands
+        trow = []
+        trow.append('COPERNICUS bands')
+        trow.append(config_lk['bands'])
+        if 'bands' in _status: trow.append(_status['bands'])
+        data_matrix.append(trow)
 
         # [ENV]
         trow = []
@@ -419,37 +448,32 @@ def displayRunConfiguration(config_lk, _status=None):
         trow.append('              ')
         data_matrix.append(trow)
 
-        trow = []
-        trow.append('Download date offset in days (timedelta)')
-        trow.append(config_lk['timedelta'])
-        data_matrix.append(trow)
-
-        trow = []
-        trow.append('Download fixed date (knowndate)')
-        trow.append(config_lk['knowndate'])
-        data_matrix.append(trow)
-
+        # base_d
         trow = []
         trow.append('Script Working directory')
-        trow.append(config_lk['working_d'])
-        if 'working_d' in _status: trow.append(_status['working_d'])
+        trow.append(config_lk['base_d'])
+        if 'base_d' in _status: trow.append(_status['base_d'])
         data_matrix.append(trow)
 
+        # verbose
         trow = []
         trow.append('Verbose mode (on/off)')
         trow.append(config_lk['verbose'])
         data_matrix.append(trow)
 
+        # online
         trow = []
         trow.append('Online mode (on/off)')
         trow.append(config_lk['online'])
         data_matrix.append(trow)
 
+        # cleanup
         trow = []
         trow.append('Delete intermediate files (on/off)')
         trow.append(config_lk['cleanup'])
         data_matrix.append(trow)
 
+        # cleanup-exclude
         trow = []
         trow.append('Exclude from deletion')
         if len(config_lk['cleanup-exclude']) == 0:
@@ -458,33 +482,6 @@ def displayRunConfiguration(config_lk, _status=None):
             trow.append(config_lk['cleanup-exclude'])
         data_matrix.append(trow)
 
-        # [SAGA]
-        trow = []
-        trow.append('[SAGA]')
-        trow.append('              ')
-        data_matrix.append(trow)
-
-        trow = []
-        trow.append('SAGA Commandline')
-        trow.append(config_lk['saga_cmd'])
-        if 'saga_cmd' in _status: trow.append(_status['saga_cmd'])
-        data_matrix.append(trow)
-
-        trow = []
-        trow.append('SAGA verbose mode (on/off)')
-        trow.append(config_lk['saga_verbose'])
-        data_matrix.append(trow)
-
-        trow = []
-        trow.append('SAGA CPU cores usage')
-        trow.append(config_lk['saga_cores'])
-        data_matrix.append(trow)
-
-        trow = []
-        trow.append('SAGA Workflow module')
-        trow.append(config_lk['workflow'])
-        if 'workflow' in _status: trow.append(_status['workflow'])
-        data_matrix.append(trow)
 
         # [LOGGER]
         trow = []
@@ -492,16 +489,19 @@ def displayRunConfiguration(config_lk, _status=None):
         trow.append('              ')
         data_matrix.append(trow)
 
+        # timestamp
         trow = []
         trow.append('Add timestamp to logfile name')
         trow.append(config_lk['timestamp'])
         data_matrix.append(trow)
 
+        # rotations
         trow = []
         trow.append('Maximum number of logfiles before rotation')
         trow.append(config_lk['rotations'])
         data_matrix.append(trow)
 
+        # identifier
         trow = []
         trow.append('Indentifier string')
         trow.append(config_lk['identifier'])
@@ -550,190 +550,29 @@ def sanityCheck(config_lk):
     """ Assert the validity and format of most of the parameters
         defined in the configuration file."""
 
-    HTTPS_PORT = 443
     _status = dict()
-
-#   Validate COPERNICUS Landsat8 login url
-    if config_lk['online']:
-        try:
-            portal_url = config_lk['portal_url']
-            address = portal_url.split('://')
-            if address[0] == 'https':
-                usgs = HTTPConnection(address[1], HTTPS_PORT)
-                usgs.connect()
-                usgs.close()
-            else:
-                raise InvalidURL()
-
-            # Validate COPERNICUS account credentials
-            _browser = rb(parser='html.parser', history=True)
-            portal_url = config_lk['portal_url']
-
-            _browser.open(portal_url)
-            login = _browser.get_form(action='/login/')
-            login['username'] = config_lk['username']
-            login['password'] = config_lk['password']
-            _browser.session.headers['Referer'] = portal_url
-
-            _browser.submit_form(login)
-            # Get browser response page and find if login successful
-            rtext = _browser.parsed.text.encode('ascii', 'ignore')
-            if re.search('Invalid username/password', str(rtext), flags=RegexFlag.IGNORECASE):
-                _status['username'] = 'Invalid Credentials'
-                _status['password'] = 'Invalid Credentials'
-                print('Invalid username/password')
-
-        except socket.gaierror:
-            _status['url_login'] = 'Invalid URL login'
-        except InvalidURL:
-            _status['url_login'] = 'Invalid URL protocol'
-        except HTTPException:
-            _status['url_login'] = 'Invalid URL login'
-
-
-#   Check if Saga commandline programme is accessible
-    _saga_cmd = config_lk['saga_cmd']
-    if not os.path.isfile(_saga_cmd):
-        _status['saga_cmd'] = 'SAGA excecutable not found'
-
-#   Check if workflow classname is valid
-    wf_name = config_lk['workflow']
-    wf_cls = importClassByName(wf_name)
-    if wf_cls is None:
-        _status['workflow'] = 'SAGA Workflow is not valid'
 
 #   if on Windows OS, check if working directory drive letter exists
     if 'Windows' in platform.system():
         drive_bitmask = ctypes.cdll.kernel32.GetLogicalDrives()
         drives = list(itertools.compress(string.ascii_uppercase, [ord(x) - ord('0') for x in bin(drive_bitmask)[:1:-1]]))
 
-        _working_dir = config_lk['working_d']
+        _base_dir = config_lk['base_d']
 
-        if _working_dir.split(':')[0] in drives:
+        if _base_dir.split(':')[0] in drives:
 
             # if working directory doesn't exist, create it
-            if os.path.isdir(_working_dir) is False:
-                os.makedirs(_working_dir)
+            if os.path.isdir(_base_dir) is False:
+                os.makedirs(_base_dir)
 
         else:
-            _status['working_d'] = 'Drive does not exist'
+            _status['base_d'] = 'Drive does not exist'
 
-    # ==========================================================
-    # Rebuild scene data. Here, we make sure that all path/row
-    # data are in range and formatted as a 3 characters long string
-    #
-    #         path:[1, 233], row: [1,248]
-    #
-    #         if path = 1 --> '001', row = 68 --> '068'
-    # ===========================================================
-
-    _all_scenes = config_lk['scenes']
-    _new_scenes = []
-    _scene_errors = []
-
-    itrack = 1
-    for scenes in _all_scenes:
-
-        try:
-            for path in scenes:
-                track = defaultdict(list)
-                # make sure path is an integer and it's a 3 character padded string
-                ipath = int(path) # make sure path is an integer
-                if ipath > 233: raise ValueError()
-                path = format(ipath, '03d')
-
-                for row in scenes[path]:
-                    irow = int(row) # make sure row is an integer
-                    if irow > 248: raise ValueError()
-                    row = format(irow, '03d')
-                    track[path].append(row)
-
-                _new_scenes.append(track)
-                itrack += 1
-
-        except ValueError:
-            _scene_errors.append('Track #{0}: PATH/ROW {1}/{2}'.format(itrack, path, row))
-            itrack += 1
-
-
-    if len(_scene_errors) > 0:
-        _status['scenes'] = _scene_errors
-
-    config_lk['scenes'] = _new_scenes
 
     logger = LogEngine().logger
     logger.debug('Sanity checks done.')
 
     return _status
-
-
-def setDownloadDates(config_lk, dates=None):
-    """ Assert proper date formats and store them into the configuration
-        dictionary under the key 'dates' """
-
-    all_dates = []
-    logger = LogEngine().logger
-
-    if dates is None:
-
-        timedelta = config_lk['timedelta'].replace(' ', '')
-        knowndate = config_lk['knowndate'].replace(' ', '')
-
-        if len(timedelta) == 0 and len(knowndate) == 0:
-            pass
-        else:
-            try:
-                if  len(timedelta) == 0:
-                    text = 'knowndate'
-                    if len(knowndate) != 8:
-                        raise ValueError()
-                    else:
-                        all_dates.append(datetime.datetime.strptime(knowndate, '%Y%m%d').strftime('%Y-%m-%d'))
-                        logger.info('Using \'knowndate\' option.')
-                else:
-                    text = 'timedelta'
-                    # Calculate LC8 date for download [YYYY][DOY]
-                    download_date = datetime.datetime.now() - datetime.timedelta(days=int(timedelta))
-                    all_dates.append(download_date.strftime('%Y-%m-%d'))
-                    logger.info('Using \'timedelta\' option.')
-
-            except ValueError:
-                if text == 'knowndate':
-                    logger.critical('Error parsing date [knowndate]=%s. Required format is [YYYY][MM][DD]', knowndate)
-                else:
-                    logger.critical('Error estimating download date from [timedelta]=%s. Value must be an integer', str(timedelta))
-
-        if len(all_dates) == 0:
-            logger.critical('Error estimating the download date')
-            exit(1)
-
-    else:
-        # We have command line date input
-        if len(dates) != 2:
-            logger.critical('Option [-dt --date] argument length error: -dt [start_date] [end_date]')
-            exit(1)
-
-        else:
-            # Check if date format and time increment are correct
-            try:
-                strdate = dates[0]
-                begin = datetime.datetime.strptime(strdate, '%Y%m%d')
-                strdate = dates[1]
-                end = datetime.datetime.strptime(strdate, '%Y%m%d')
-
-            except ValueError:
-                logger.critical('Error parsing date: %s. Required format is [YYYY][MM][DD]', strdate)
-                exit(1)
-
-            all_dates.append(datetime.datetime.strptime(dates[0], '%Y%m%d').strftime('%Y-%m-%d'))
-            all_dates.append(datetime.datetime.strptime(dates[1], '%Y%m%d').strftime('%Y-%m-%d'))
-
-    config_lk['dates'] = all_dates
-
-    if len(all_dates) > 1:
-        logger.info('Processing scene dates from [%s] to [%s]', all_dates[0], all_dates[-1])
-
-    return
 
 
 def benchmark(func):
