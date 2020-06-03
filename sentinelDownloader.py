@@ -18,7 +18,7 @@ from sentinel.utils import displayRunConfiguration
 
 
 _logger = None
-
+logger = logging.getLogger('sentinelsat.SentinelAPI')
 
 def processProduct(config_lk, queue):
     """ Workflow processing main loop
@@ -31,10 +31,12 @@ def processProduct(config_lk, queue):
         while True:
 
             tile = queue.get()
-
+            _logger.debug('Pulling tile \'%s\' from stack', tile['title'])
+            
             if tile is not None:
                 # Test if we ran into end of scenes marker sensor='XXX'
                 if tile['title'] == 'XXXX':
+                    _logger.debug('Found end of stack item, exiting \'processProduct()\' function')
                     return
                 else:
                     try:
@@ -47,7 +49,7 @@ def processProduct(config_lk, queue):
 
                     queue.task_done()
 
-            _logger.debug('Listening for new scene to process...')
+            _logger.debug('Listening for new tile to process...')
 
     except NameError as error:
         _logger.critical('Error workflow class name: %s', repr(error))
@@ -149,7 +151,9 @@ if __name__ == '__main__':
     basedir = config['base_d']
     config['downloads_d'] = os.path.join(basedir,'downloads')
     config['tiles_d'] = os.path.join(basedir,'tiles')
+    config['thumbs_d'] = os.path.join(basedir,'thumbnails')
     
+    # create folders if they don't exist
     if not os.path.exists(basedir):
         os.makedirs(name=basedir)
         
@@ -158,6 +162,9 @@ if __name__ == '__main__':
         
     if not os.path.exists(config['tiles_d']):
         os.makedirs(name=config['tiles_d'])
+        
+    if not os.path.exists(config['thumbs_d']):
+        os.makedirs(name=config['thumbs_d'])        
 
     # ======================================================= args.validate ====
     # Do we need to validate the config file?
@@ -174,19 +181,19 @@ if __name__ == '__main__':
         exit(0)
 
     # ==========================================================================
-    
+
     log_basename = 'sentinel_downloads'
-    
+
     if config['verbose']:
         _logger.setLevel(logging.DEBUG)
     else:
         _logger.setLevel(logging.INFO)                
-    
+
     engine.setLogsRootdir(basedir)
     engine.addFilelogHandler(basename=log_basename, rotations=config['rotations'], timestamp=config['timestamp'], identifier=config['identifier'])  
-    
+
     if config['platform'] == 'Sentinel-2':
-        
+
         downloader = sent2Downloader(config)
         producer = Thread(target=downloader.startDownloads, name='Downloader')
         producer.start()
@@ -194,11 +201,12 @@ if __name__ == '__main__':
 
         q_fifo = downloader.getTasksQueue()
         processProduct(config, q_fifo)
-        
+
     else:
         _logger.info('Platform not supported. Unzip archive manually.')
-        
-    
-    _logger.info('Done processing tile list ...')    
-    
+
+    _logger.info('Done processing tile list ...')
+    _logger.info('================================')
+    _logger.info('  ')
+
     exit(0)

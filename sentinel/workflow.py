@@ -34,9 +34,9 @@ class workflowSentinel2:
         
         try:
             date = tile['ingestiondate']
-            self.logger.info('Processing tile \'%s\' acquired on %s', tile['title'], date)
+            self.logger.debug('Processing tile \'%s\' acquired on %s', tile['title'], date)
         except KeyError as error:
-            self.logger.info('Processing tile \'%s\'', tile['title'])
+            self.logger.debug('Processing tile \'%s\'', tile['title'])
             
         self.extractSentinel2Bands()
 
@@ -62,10 +62,10 @@ class workflowSentinel2:
 
             if re_compile is not None:
 
-                groups = re_compile.groups()
+                tilegroups = re_compile.groups()
                 # Groups index start at zero. Get tile number (group 5) and date (group 6) and time (group 7)
-                tempdir = os.path.join(tiles_d, groups[5], groups[6])
-                outputdir = os.path.join(tiles_d, tempdir, "T" + groups[7])
+                tempdir = os.path.join(tiles_d, tilegroups[5], tilegroups[6])
+                outputdir = os.path.join(tiles_d, tempdir, "T" + tilegroups[7])
 
             else:
                 # regular expression match failed, used product default name
@@ -99,8 +99,11 @@ class workflowSentinel2:
                         if not (groups[3] in self.config['bands']):
                             continue
 
-                        imgName = groups[0] + '_' + groups[1] + '_' + groups[3] + '.jp2'
-
+                        if groups[3] == 'PVI':
+                            imgName = groups[0] + '_' + groups[1] + '_T' + tilegroups[7] + '.jp2'
+                        else:
+                            imgName = groups[0] + '_' + groups[1] + '_T' + tilegroups[7] + '_' + groups[3] + '.jp2'
+                        
                         # set new image filename (full path)
                         outputfilename = os.path.join(outputdir, imgName)
                         outputmetadata = os.path.join(outputdir, 'metadata.txt')
@@ -122,9 +125,22 @@ class workflowSentinel2:
 
 
                         if groups[3] == 'PVI':
-                            filename, extension = os.path.splitext(outputfilename);
+
                             img = Image.open(outputfilename)
-                            img.save(filename + "." + "png")
+                            
+                            # form the png image filename
+                            fname = os.path.basename(outputfilename)
+                            filename, extension = os.path.splitext(fname);
+
+                            thumbsdir = os.path.join(self.config['thumbs_d'], groups[0])
+                            if not os.path.exists(thumbsdir):
+                                os.makedirs(name=thumbsdir)
+                                
+                            thumbnail = os.path.join(thumbsdir,fname)
+                            img.save(thumbnail + ".png")
+                            
+                            # delete PVI.jp2 image
+                            os.remove(outputfilename)
 
 
                 except KeyError:
